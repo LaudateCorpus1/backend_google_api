@@ -258,7 +258,7 @@ class Manager {
      * @param {Integer} pageSize 
      */
     loadChildFolders(listAll = false) {
-        this.currentDrive.get(this.currentFolder.info.id).fillFolders();
+        this.currentFolder.fillFolders();
         if (listAll) {
             this.getFolderInfo();
         }
@@ -270,7 +270,7 @@ class Manager {
      * @param {Integer} pageSize 
      */
     loadChildFiles(listAll = false, pageSize = 100) {
-        this.currentDrive.get(this.currentFolder.info.id).fillFiles(pageSize);
+        this.currentFolder.fillFiles(pageSize);
         if (listAll) {
             this.getFolderInfo();
         }
@@ -295,10 +295,10 @@ class FolderTree {
      * The FolderTree, a system which supports lazy evaluation and tracks
      * the information currently accessed in a Google Drive or Folder.
      * Has three types, and supports multiple functions.
-     * @param {*} type 
-     * @param {*} info 
-     * @param {*} instance 
-     * @param {*} parent 
+     * @param {String} type 
+     * @param {JSON} info 
+     * @param {File or Folder} instance 
+     * @param {FolderTree or null} parent 
      * TODO: FolderInfo pagesize parameter.
      */
     constructor(type, info, instance, parent = null) {
@@ -343,14 +343,14 @@ class FolderTree {
 
     /**
      * Initializes as many files as possible, adds them to the FolderTree.
-     * @param {*} pageSize 
+     * @param {Integer} pageSize 
      * @return {Array} Returns all File Information
      */
     async fillFiles(pageSize = 500) {//Page Token TODO
         var response = await gapi.client.drive.files.list({
             'pageSize': pageSize,
             'fields': "*",
-            'q': "'" + this.folderID + "' in parents and not mimeType contains 'folder' and trashed = false",
+            'q': "'" + this.info.id + "' in parents and not mimeType contains 'folder' and trashed = false",
             'supportsAllDrives': 'true',
             'includeItemsFromAllDrives': 'true',
         }).then(function (response) {
@@ -362,7 +362,7 @@ class FolderTree {
             var parsed = parseFileInfo(file);
             if (!(parsed in this.childFileInfo)) {
                 this.childFileInfo.push(parsed);
-                this.addBranch("FILE", parsed, new File(parsed));
+                this.addBranch("FILE", parsed, File(parsed));
             }
         }
         return response.result.files;
@@ -417,7 +417,7 @@ class FolderTree {
         if (!(id in initializedIDs)) {
             for (var info of this.childFileInfo) {
                 if (id == info.id) {
-                    return await this.addBranch("FILE", info, new File(info));
+                    return await this.addBranch("FILE", info, File(info));
                 }
             }
         }
@@ -544,17 +544,31 @@ class FolderTree {
     //TODO: Update Function, Updates given FolderTree Information
 }
 
-class Folder { //Placeholder Class
+class Folder { //Placeholder Class for Drives and Folders
     constructor(info) {
         this.info = info;
     }
 }
 
 
-//Lazy Evaluation, Constructor will not initialize with content,
+//Lazy Evaluation, Child Constructors will not initialize with content,
 //Requested On Demand (Translation to other APIs begins here)
-class File {
+function File(info) {
+    if (info.hasOwnProperty('mimetype') && info.mimetype == "SHEET") {
+        return new Sheet(info);
+    } else {
+        return new DefaultFile(info);
+    }
+}
+
+class DefaultFile {
     constructor(info) {
         this.info = info;
+    }
+}
+
+class Sheet extends DefaultFile {
+    constructor (info) {
+        super(info);
     }
 }
