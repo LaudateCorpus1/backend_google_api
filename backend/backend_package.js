@@ -8,7 +8,7 @@
  */
 console.log("Backend Package Running...");
 var manager = null;
-
+var inspect = [];
 
 async function init() {
     manager = new Manager();

@@ -23,22 +23,34 @@
 //1000 files should not be filled as this operation is currently not
 //supported.
 
+/**
+ * Parsing used for Data Minimization, only necessary info collected.
+ * Drives are folders, thus parent is not collected.
+ * @param {JSON} folder Must be a Google File Instane with required attributes
+ * @return {JSON} Minimized JSON of folder
+ */
 function parseFolderInfo(folder) {
     return {
         type: "FOLDER",
         id: folder.id,
-        name: folder.name
+        name: folder.name,
         //MoreInfo
     };
 }
 
+/**
+ * Parsing used for Data Minimization, only necessary info collected.
+ * @param {JSON} file Must be a Google File Instance with required attributes
+ * @return {JSON} Minimized JSON of file
+ */
 function parseFileInfo(file) {
     return {
         type: "FILE",
         id: file.id,
         name: file.name,
         parents: file.parents,
-        parent: file.parents[0]
+        parent: file.parents[0],
+        mimeType: file.mimeType
         //MoreInfo
     };
 }
@@ -58,7 +70,8 @@ class Manager {
     }
 
     /**
-     * Initializes Manager Info and attribute values.
+     * Initializes Manager Info and sets attribute values.
+     * @return null
      */
     async initializeDriveInfo() {
         var drives = await gapi.client.drive.drives.list({
@@ -77,9 +90,14 @@ class Manager {
         this.currentDrive = this.driveTrees[0];
         this.allIDs = [this.myDriveID].concat(this.sharedDrivesInfo.map(drive => drive.id));
         this.switchDrive(this.myDriveID);
-        console.log("MANAGER IS LOADED")
+        console.log("MANAGER IS LOADED");
     }
 
+    /**
+     * Retrieve Info returns all information provided by drive.files.get call.
+     * @param {String} id File or Folder ID
+     * @return {JSON} Returns result (GOOGLE FILE INSTANCE)
+     */
     async retrieveInfo(id) {
         return await gapi.client.drive.files.get({
             'fileId': id,
@@ -96,7 +114,8 @@ class Manager {
      * Else, it will attempt to initialize a new FolderTree
      * with that Drive's folder if the ID is valid and add that
      * to driveTrees.
-     * @param {String} driveID 
+     * @param {String} driveID Google Drive ID for Drive Folder, may exist in this.allIDs
+     * @return {FolderTree} tree
      */
     async getDrive(driveID) {
         //Looks in this.driveTrees to find a FolderTree, returns tree
@@ -106,7 +125,7 @@ class Manager {
                 return tree;
             }
         }
-        var info = await this.retrieveInfo(driveID);
+        var info = this.retrieveInfo(driveID);
         if (this.allIDs.includes(driveID) || !info.hasOwnProperty('parents')) {
             this.driveTrees.push(new FolderTree("DRIVE", parseFolderInfo(info), new Folder(driveID)));
             return this.getDrive(driveID);
@@ -117,11 +136,12 @@ class Manager {
      * This function will switch the current Drive to a Shared Drive
      * or My Drive given a driveID. Will call getDrive, which will
      * attempt to initialize a drive if not found in driveTrees.
-     * @param {String} driveID 
+     * @param {String} driveID Google Drive ID for Drive Folder, may exist in this.allIDs
+     * @return null
      */
     async switchDrive(driveID) {
         if (this.allIDs.includes(driveID)) {
-            var drive = await this.getDrive(driveID);
+            var drive = this.getDrive(driveID);
             this.currentDrive = drive;
             this.currentFolder = drive;
         } else {
@@ -141,11 +161,12 @@ class Manager {
      * Returns folder or file in the currentDrive.
      * Folder or file must exist in currentDrive already.
      * Possible use, updating manager.currentFolder
-     * @param {String} id_or_name 
-     * @param {Boolean} initAbove
+     * @param {String} id_or_name File ID or Exact Name
+     * @param {String} requiredType The requiredtype is either "FOLDER" or "FILE"
+     * @return {FolderTree} tree
      */
     find(id_or_name, requiredType = null) {
-        this.currentFolder.get(id_or_name, requiredType);
+        return this.currentFolder.get(id_or_name, requiredType);
     }
 
     /**
@@ -161,7 +182,7 @@ class Manager {
      * customQuery can be set to add on to the query.
      * Documentation for Search Queries can be found online.
      * If prompt, when multiple results show, user will prompted to choose one.
-     * NOTE: For prompt, please updated the getInput function in 
+     * NOTE: For prompt, please update the getInput function in 
      * the running Manager Instance (seen below this function).
      * If initAll, will initialize currentDrive to that path.
      * If override, will skip default check through current Drive memory.
@@ -170,9 +191,9 @@ class Manager {
      * @param {String} customQuery a String that must start with and/or/etc.
      * @param {Boolean} initAll Default=True, Will initialize entire path to file.
      * @param {Boolean} override Default=False, Would skip default check through current driveTrees.
-     * @return {FolderTree or JSON} Tree, if initAll = true, else a JSON object
+     * @return {FolderTree} Tree, if initAll = true, else a JSON object (GOOGLE FILE INSTANCE)
      */
-    async search(name, prompt = false, customQuery = "", initAll = true, override = false) {
+    async search(name, initAll = true, customQuery = "", prompt = true, override = false) {
         //Check every existing drive first.
         if (!override) {
             for (var drive of this.driveTrees) {
@@ -227,7 +248,7 @@ class Manager {
                     return await folder.searchAndInit(myFile.id);
                 }
             }
-            return null;
+            return myFile;
         }
     }
 
@@ -235,7 +256,7 @@ class Manager {
      * To get input through an automated fashion, this function
      * in the Manager instance should be updated to return
      * an integer index for a selection given an array.
-     * @param {Array} arr The Files Array
+     * @param {Array} arr The Files Info Array
      * @return {String}
      */
     getInput(arr) {
@@ -243,7 +264,7 @@ class Manager {
             for (var item of arr) {
                 console.log(item.name);
             }
-            return prompt("Provide the index for files.");
+            return prompt("Provide the index for files. 0 is for the first file.");
         }
     }
 
@@ -265,6 +286,7 @@ class Manager {
         if (initAll) {
             this.getFolderInfo();
         }
+        return this.currentFolder;
     }
 
     /**
@@ -282,7 +304,7 @@ class Manager {
      * @param {*} initAll 
      */
     cd(id_or_name, initAll = false) {
-        this.switchLocal(id_or_name, initAll);
+        return this.switchLocal(id_or_name, initAll);
     }
 
     /**
@@ -292,7 +314,7 @@ class Manager {
      * @param {*} initAll 
      */
     cat(id_or_name) {
-        this.getLocal(id_or_name);
+        return this.getLocal(id_or_name);
     }
 
     /**
@@ -314,12 +336,9 @@ class Manager {
      * @param {Boolean} listAll
      * @param {Integer} pageSize 
      */
-    load(listAll = false, pageSize = 100) {
+    load(listAll = false) {
         this.loadChildFolders(listAll);
-        this.loadChildFiles(listAll, pageSize);
-        if (listAll) {
-            this.getFolderInfo();
-        }
+        this.loadChildFiles(listAll);
     }
 
     /**
@@ -339,8 +358,8 @@ class Manager {
      * @param {Boolean} listAll 
      * @param {Integer} pageSize 
      */
-    loadChildFiles(listAll = false, pageSize = 100) {
-        this.currentFolder.fillFiles(pageSize);
+    loadChildFiles(listAll = false) {
+        this.currentFolder.fillFiles();
         if (listAll) {
             this.getFolderInfo();
         }
@@ -354,11 +373,8 @@ class Manager {
 }
 
 /**
- * A FolderTree is an array of the following structure.
- * TOBEUPDATED
- * [
- *  [["DRIVE", INFO, INSTANCE], [["FOLDER", INFO, INSTANCE], [["FOLDER", INFO, INSTANCE], ...], [["FILE", INFO, INSTANCE]]], [["FOLDER", INFO, INSTANCE]], [["FILE", INFO, INSTANCE]]
- * ]
+ * A FolderTree is an array of the following structure:
+ * this.root = ["FOLDER" or "FILE", ]
  */
 class FolderTree {
     /**
@@ -382,60 +398,84 @@ class FolderTree {
         //If type is DRIVE, parent should be null
         this.parent = parent;
         this.ready = true;
-        if (this.type == "DRIVE" || this.type == "FOLDER") {
+        if (this.type == "FOLDER") {
             this.ready = false;
-            this.initFolderInfo();
+            this.init();
         }
     }
 
     /**
-     * Fills this.childFolderInfo with the info of all folders that
-     * are a child of this FolderTree.
-     * @param {Integer} pageSize 
-     * @return {Array} Returns all File Information fields=*
+     * Init makes a call to get all the files of the current folder,
+     * parses them, and places them in their corresponding folders.
+     * (Either childFileInfo or childFolderInfo)
+     * The assumption is that the current drive has atmost 1000 files and folders.
+     * Implementation for drive folders that contain more than
+     * 1000 files and folders has not been developed.
+     * @param {int} pageSize The Default Pagesize to fill the Folder
      */
-    async initFolderInfo(pageSize = 100) {
-        //Fills this.childFolderInfo with all of my folders info
-        //Should be called in constructor
-        //Alternatively could use gapi's Children list function
+    async init(pageSize = 1000) { //Page Token TODO
         var response = await gapi.client.drive.files.list({
             'pageSize': pageSize,
             'fields': "*",
-            'q': "'" + this.info.id + "' in parents and mimeType contains 'folder' and trashed = false",
+            'q': "'" + this.info.id + "' in parents and trashed = false",
             'supportsAllDrives': 'true',
             'includeItemsFromAllDrives': 'true',
         }).then(function (response) {
             return response;
         }, err => console.log("Error ", err));
-        this.childFolderInfo = this.childFolderInfo.concat(response.result.files.map(folder => parseFolderInfo(folder)));
+        var items = response.result.files;
+        for (var item of items) {
+            if (item.hasOwnProperty('mimeType') && item.mimeType.includes('folder')) {
+                this.childFolderInfo.push(parseFolderInfo(item));
+            } else if (item.hasOwnProperty('mimeType')) {
+                this.childFileInfo.push(parseFileInfo(item));
+            }
+        }
         this.ready = true;
         return response.result.files;
     }
 
     /**
-     * Initializes as many files as possible, adds them to the FolderTree.
+     * Will initialize all folders found in childFolderInfo.
+     * Is created for "One Time Use", will not add more folders when initialized.
+     */
+    async fillFolders() {
+        var initializedIDs = [];
+        for (var item of this.branches) {
+            initializedIDs.push(item.info.id);
+        }
+        for (var info of this.childFolderInfo) {
+            if (!(initializedIDs.includes(info.id))) {
+                this.addBranch("FOLDER", info, new Folder(info));
+            }
+        }
+    }
+
+    /**
+     * Initializes all files in this.fileFolderInfo, adds them to the FolderTree.
      * @param {Integer} pageSize 
      * @return {Array} Returns all File Information
      */
-    async fillFiles(pageSize = 1000) { //Page Token TODO
-        //Alternatively could use gapi's Children list function
-        var response = await gapi.client.drive.files.list({
-            'pageSize': pageSize,
-            'fields': "*",
-            'q': "'" + this.info.id + "' in parents and not mimeType contains 'folder' and trashed = false",
-            'supportsAllDrives': 'true',
-            'includeItemsFromAllDrives': 'true',
-        }).then(function (response) {
-            return response;
-        }, err => console.log("Error ", err));
-        for (var file of response.result.files) {
-            var parsed = parseFileInfo(file);
-            if (!(this.childFileInfo.includes(parsed))) {
-                this.childFileInfo.push(parsed);
-                this.addBranch("FILE", parsed, genFile(parsed));
+    async fillFiles() {
+        var initializedIDs = [];
+        for (var item of this.branches) {
+            initializedIDs.push(item.info.id);
+        }
+        for (var info of this.childFileInfo) {
+            if (!(initializedIDs.includes(info.id))) {
+                this.addBranch("FILE", info, genFile(info));
             }
         }
-        return null;
+    }
+
+    /**
+     * Calls Fill Folders and Fill Files.
+     * Will fill this.childFolderInfo and this.childFileInfo
+     * @return null
+     */
+    async fill() {
+        this.fillFolders();
+        this.fillFiles();
     }
 
     /**
@@ -460,22 +500,6 @@ class FolderTree {
             return this.addBranch("FILE", parsed, genFile(parsed));
         }
         return null;
-    }
-
-    /**
-     * Will initialize all folders found in childFolderInfo.
-     * Is created for "One Time Use", will not add more folders when initialized.
-     */
-    async fillFolders() {
-        var initializedIDs = [];
-        for (var item of this.branches) {
-            initializedIDs.push(item.info.id);
-        }
-        for (var info of this.childFolderInfo) {
-            if (!(initializedIDs.includes(info.id))) {
-                this.addBranch("FOLDER", info, new Folder(info));
-            }
-        }
     }
 
     /**
@@ -529,9 +553,9 @@ class FolderTree {
     /**
      * Main function to add branch to this.branches.
      * Checks for types, creates FolderTree and returns FolderTree.
-     * @param {*} type 
-     * @param {*} info 
-     * @param {*} instance 
+     * @param {String} type "FILE" or "FOLDER" ONLY
+     * @param {JSON} info JSON Format
+     * @param {Folder or DefaultFile} instance 
      */
     async addBranch(type, info, instance) {
         type = type.toUpperCase();
@@ -587,6 +611,9 @@ class FolderTree {
      * @return {FolderTree}
      */
     getLocal(INSTANCE_OR_ID_OR_NAME, requiredType = null) {
+        if (INSTANCE_OR_ID_OR_NAME == "..") {
+            return parent;
+        }
         if (this.info.id == INSTANCE_OR_ID_OR_NAME || this.info.name == INSTANCE_OR_ID_OR_NAME || this.instance == INSTANCE_OR_ID_OR_NAME) {
             if (!requiredType || this.type == requiredType) {
                 return this;
@@ -649,7 +676,63 @@ class FolderTree {
         return null;
     }
 
+    /** Creating Files Info:
+     * Supported mimeTypes:
+     * Folder: "application/vnd.google-apps.folder"
+     * Google Doc: "application/vnd.google-apps.document"
+     * Spreadsheet: "application/vnd.google-apps.spreadsheet"
+     * TODO: Add Slides
+     */
+
+    /**
+     * Will create a new Folder in this FolderTree and initialize it as a branch.
+     * SPECIAL: Bypasses addBranch to avoid an extra quota call.
+     * @param {String} name 
+     * @return Returns Created FolderTree
+     */
+    async createFolder(name) {
+        payload = {
+            "name": name,
+            mimeType: "application/vnd.google-apps.folder",
+            parents: [this.info.id],
+            fields: '*'
+        }
+        var response = await gapi.client.drive.files.create(payload);
+        var parsed = parseFolderInfo(response.result);
+        var tree = new FolderTree("FOLDER", parsed, new Folder(parsed), this);
+        this.branches.push(tree);
+        return tree;
+    }
+
+    /** 
+     * Will create a File in this FolderTree and initialize it as a branch.
+     * FILE_INFO = {
+     *  name: "NAME",
+     *  mimeType: "application/vnd.google-apps.folder" OR 
+     *            "application/vnd.google-apps.document" OR
+     *            "application/vnd.google-apps.spreadsheet"
+     *            TODO: Add Slides
+     * }
+     * @param {JSON} FILE_INFO The File Info, must follow above structure.
+     * @return {FolderTree} Will return FolderTree for File.
+     */
+    async createFile(FILE_INFO) {
+        if (FILE_INFO.hasOwnProperty('name') && FILE_INFO.hasOwnProperty('mimeType')) {
+            FILE_INFO.fields = '*';
+            FILE_INFO.parents = [this.info.id];
+            var response = await gapi.client.drive.files.create(FILE_INFO);
+            var parsed = parseFileInfo(response.result);
+            this.childFileInfo.push(parsed);
+            return this.addBranch("FILE", parsed, genFile(parsed));
+        }
+    }
+
+
     //TODO: Update Function, Updates given FolderTree Information
+    //TODO: Function to list files by certain type, return array.
+    //TODO: Shortcut Functionality, grab targetID and initialize as Folder
+    //TODO: Move Files
+    //TODO: Delete Files
 }
 
 class Folder { //Placeholder Class for Drives and Folders
@@ -658,11 +741,14 @@ class Folder { //Placeholder Class for Drives and Folders
     }
 }
 
-
-//Lazy Evaluation, Child Constructors will not initialize with content,
-//Requested On Demand (Translation to other APIs begins here)
+/**
+ * Lazy Evaluation, Child Constructors will perform one
+ * call to initialize with their inner content.
+ * Each File supports simple read and write capabilities.
+ * @param {JSON} info 
+ */
 function genFile(info) {
-    if (info.hasOwnProperty('mimetype') && info.mimetype == "SHEET") {
+    if (info.hasOwnProperty('mimeType') && info.mimeType.includes("spreadsheet")) { //
         return new Sheet(info);
     } else {
         return new DefaultFile(info);
@@ -675,8 +761,91 @@ class DefaultFile {
     }
 }
 
+/**
+ * Google Docs are more complex than they look!
+ * View the Reference Docs written here to get an idea:
+ * https://developers.google.com/docs/api/concepts/structure
+ * 
+ * TODO: I'll be implementing a minimalistic style that translates
+ * this behavior into a more easily comprehendable and usable
+ * structure. (THIS WILL BE MOVED UNTIL THE FEATURE IS
+ * DEEMED NECESSARY/WHEN TIME COMES TO DEVELOP IT)
+ */
+class Doc extends DefaultFile {
+    constructor(info) {
+        super(info);
+        this.init();
+    }
+    async init() {
+        this.content = await this.get();
+    }
+    async get() {
+        var response = await gapi.client.docs.documents.get({
+            documentId: this.info.id,
+            fields: '*'
+        });
+    }
+    async update() {
+
+    }
+}
+
+/**
+ * The Sheet class emulates the behavior of Google Sheets,
+ * with simple read and write capabilities.
+ */
 class Sheet extends DefaultFile {
     constructor(info) {
         super(info);
+        this.init();
+    }
+
+    async init() {
+        this.rows = await this.get();
+    }
+
+    normalizeRows(rows) {
+        if (rows == null) {
+            return [];
+        }
+        var maxLen = 0;
+        for (var row of rows) {
+            if (row.length > maxLen) {
+                maxLen = row.length;
+            }
+        }
+        for (var row of rows) {
+            for (var i = maxLen - row.length; i > 0; i--) {
+                row.push("");
+            }
+        }
+    }
+
+    async get(subsheet = "") {
+        return this.normalizeRows(await gapi.client.sheets.spreadsheets.values.get({
+            spreadsheetId: this.info.id,
+            range: subsheet + '!A1:Z',
+        }).then(function (response) {
+            return response.result.values;
+        }));
+    }
+
+    async update() {
+        return await gapi.client.sheets.spreadsheets.values.update({
+            spreadsheetId: this.info.id,
+            range: "A1:Z",
+            valueInputOption: "RAW",
+        }, {
+            values: this.rows
+        }).then(function (response) {
+            return response;
+        }, function (response) {
+            console.log('Error Occured: ' + response.result.error.message);
+        });
     }
 }
+
+//Slides API Under Development
+
+
+//More APIs on the way!
