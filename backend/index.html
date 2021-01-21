@@ -1,0 +1,45 @@
+<!-- index.html (backend_package) by Pirjot Atwal -->
+<!-- Developed for use by internal NSTEM Team -->
+<!-- Adapted by Drive Quickstart, Functions imported from backend_package.js  -->
+<!-- Credentials provided by Quickstart Project -->
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Backend Google API Package</title>
+  <meta charset="utf-8" />
+  <style>
+    textarea {
+      width: 300px;
+      height: 150px;
+    }
+  </style>
+</head>
+
+<body>
+  <p>Backend Google API Package</p>
+
+  <!--Add buttons to initiate auth sequence and sign out-->
+  <button id="authorize_button" style="display: none;">Authorize</button>
+  <button id="signout_button" style="display: none;">Sign Out</button>
+
+  <p id="content" style="white-space: pre-wrap;"></p>
+  <p id="status" style="white-space: pre-wrap;"></p>
+  <textarea id="inputArea" placeholder="Input Code Here, Use print(MESSAGE) to output into output below. NOTE: All code run without reloading this page will retain its effects, all global variables are not available on subsequent runs. You must surround external requests with the GAPI library in an async function."></textarea>
+  <button id="scriptbutton">Run Script</button>
+  <br></br>
+  <textarea id="console" 
+    placeholder="Output Code will be displayed here. Use print(message) instead of console.log()."></textarea>
+</body>
+
+
+  <script src="initGAPI.js"></script>
+  <script src="classes.js"></script>
+  <script src="backend_package.js"></script>
+  <script src="GIS_functions.js"></script>
+
+  <script async defer src="https://apis.google.com/js/api.js" onload="this.onload=function(){};handleClientLoad()"
+    onreadystatechange="if (this.readyState === 'complete') this.onload()">
+  </script>
+
+</html>

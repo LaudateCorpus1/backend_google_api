@@ -1,4 +1,4 @@
-//classes.js for backend package, written by Pirjot Atwal
+//classes.js for GAPI backend package, written by Pirjot Atwal
 //To ensure efficient quota usage, these classes will be optimized
 //to support lazy evaluation, where values are only computed and
 //updated when demanded with past computation being saved by the class.
@@ -63,7 +63,7 @@ class Manager {
      * this.driveTrees = An Array holding all root Drivetrees
      * this.currentDrive = Which drive the manager is "in" currently
      * this.currentFolder = Which folder the manager is "in" currently
-     * this.allIDs = All Drive IDs, with this Drive's ID being in position 0
+     * this.allDriveInfos = All Drive Infos, with this Drive's Info being in position 0
      */
     constructor() {
         this.initializeDriveInfo();
@@ -79,16 +79,15 @@ class Manager {
         }).then(function (response) {
             return response.result.drives;
         });
-        this.sharedDrivesInfo = [];
+        this.allDriveInfos = [];
         for (var drive of drives) {
-            var driveInfo = await this.retrieveInfo(drive.id);
-            this.sharedDrivesInfo.push(parseFolderInfo(driveInfo));
+            this.allDriveInfos.push(parseFolderInfo(drive));
         }
         this.myDriveInfo = parseFolderInfo(await this.retrieveInfo('root'));
+        this.allDriveInfos.unshift(this.myDriveInfo);
         this.myDriveID = this.myDriveInfo.id;
-        this.driveTrees = [new FolderTree("DRIVE", this.myDriveInfo, new Folder(this.myDriveInfo))];
+        this.driveTrees = [new FolderTree("FOLDER", this.myDriveInfo, new Folder(this.myDriveInfo))];
         this.currentDrive = this.driveTrees[0];
-        this.allIDs = [this.myDriveID].concat(this.sharedDrivesInfo.map(drive => drive.id));
         this.switchDrive(this.myDriveID);
         console.log("MANAGER IS LOADED");
     }
@@ -99,6 +98,11 @@ class Manager {
      * @return {JSON} Returns result (GOOGLE FILE INSTANCE)
      */
     async retrieveInfo(id) {
+        for (var driveInfo of this.allDriveInfos) {
+            if (driveInfo.id == id) {
+                return driveInfo;
+            }
+        }
         return await gapi.client.drive.files.get({
             'fileId': id,
             'fields': '*',
@@ -110,11 +114,20 @@ class Manager {
     }
 
     /**
+     * A helper function that takes the URL of a Google File and returns
+     * its ID. Can be called without a manager instance. 
+     * @param {String} URL A URL of a Google File
+     */
+    static getID(URL) {
+        return(new RegExp("\\/d\\/(.*?)(\\/|$)").exec(URL)[1]);
+    }
+
+    /**
      * Will retrieve drive if found in driveTrees. 
      * Else, it will attempt to initialize a new FolderTree
      * with that Drive's folder if the ID is valid and add that
      * to driveTrees.
-     * @param {String} driveID Google Drive ID for Drive Folder, may exist in this.allIDs
+     * @param {String} driveID Google Drive ID for Drive Folder, may exist in this.allDriveInfos
      * @return {FolderTree} tree
      */
     async getDrive(driveID) {
@@ -125,10 +138,10 @@ class Manager {
                 return tree;
             }
         }
-        var info = this.retrieveInfo(driveID);
-        if (this.allIDs.includes(driveID) || !info.hasOwnProperty('parents')) {
-            this.driveTrees.push(new FolderTree("DRIVE", parseFolderInfo(info), new Folder(driveID)));
-            return this.getDrive(driveID);
+        var info = await this.retrieveInfo(driveID);
+        if (!info.hasOwnProperty('parents')) {
+            this.driveTrees.push(new FolderTree("FOLDER", parseFolderInfo(info), new Folder(driveID)));
+            return await this.getDrive(driveID);
         }
     }
 
@@ -136,12 +149,12 @@ class Manager {
      * This function will switch the current Drive to a Shared Drive
      * or My Drive given a driveID. Will call getDrive, which will
      * attempt to initialize a drive if not found in driveTrees.
-     * @param {String} driveID Google Drive ID for Drive Folder, may exist in this.allIDs
+     * @param {String} driveID Google Drive ID for Drive Folder, may exist in this.allDriveInfos
      * @return null
      */
     async switchDrive(driveID) {
-        if (this.allIDs.includes(driveID)) {
-            var drive = this.getDrive(driveID);
+        if (this.allDriveInfos.map((driveInfo) => driveInfo.id).includes(driveID)) {
+            var drive = await this.getDrive(driveID);
             this.currentDrive = drive;
             this.currentFolder = drive;
         } else {
@@ -214,9 +227,8 @@ class Manager {
             return response;
         }, err => console.log("Error ", err));
         var files = response.result.files;
-        console.log(files);
         if (files.length > 1 && prompt) {
-            var index = parseInt(this.getInput(files));
+            var index = this.getInput(files);
             files = [files[index]];
         }
         if (files) {
@@ -225,7 +237,7 @@ class Manager {
                 var info = myFile;
                 var parentFolder = info.parents[0];
                 var sequenceOfParents = [];
-                while (!(this.allIDs.includes(parentFolder))) {
+                while (!(this.allDriveInfos.map((driveInfo) => driveInfo.id).includes(parentFolder))) {
                     info = await this.retrieveInfo(parentFolder);
                     sequenceOfParents.push(info.id);
                     if (!info.hasOwnProperty('parents')) {
@@ -248,7 +260,7 @@ class Manager {
                     return await folder.searchAndInit(myFile.id);
                 }
             }
-            return myFile;
+            return genFile(myFile);
         }
     }
 
@@ -257,14 +269,14 @@ class Manager {
      * in the Manager instance should be updated to return
      * an integer index for a selection given an array.
      * @param {Array} arr The Files Info Array
-     * @return {String}
+     * @return {Integer}
      */
     getInput(arr) {
         if (arr.length > 0) {
             for (var item of arr) {
                 console.log(item.name);
             }
-            return prompt("Provide the index for files. 0 is for the first file.");
+            return parseInt(prompt("Provide the index for files. 0 is for the first file."));
         }
     }
 
@@ -522,7 +534,6 @@ class FolderTree {
         if (!(initializedIDs.includes(id_or_name))) {
             for (var info of this.childFolderInfo) {
                 if (id_or_name == info.id || id_or_name == info.name) {
-                    console.log(info, id_or_name);
                     return await this.addBranch("FOLDER", info, new Folder(info));
                 }
             }
@@ -750,7 +761,7 @@ class Folder { //Placeholder Class for Drives and Folders
 function genFile(info) {
     if (info.hasOwnProperty('mimeType') && info.mimeType.includes("spreadsheet")) { //
         return new Sheet(info);
-    } else {
+    } else { // Add Google Doc
         return new DefaultFile(info);
     }
 }
@@ -783,7 +794,7 @@ class Doc extends DefaultFile {
         var response = await gapi.client.docs.documents.get({
             documentId: this.info.id,
             fields: '*'
-        });
+        }); //Under Development
     }
     async update() {
 
@@ -793,6 +804,8 @@ class Doc extends DefaultFile {
 /**
  * The Sheet class emulates the behavior of Google Sheets,
  * with simple read and write capabilities.
+ * Use getRows() in case you are immediately accessing
+ * this.rows after initialization.
  */
 class Sheet extends DefaultFile {
     constructor(info) {
@@ -802,6 +815,14 @@ class Sheet extends DefaultFile {
 
     async init() {
         this.rows = await this.get();
+    }
+
+    async getRows() {
+        const delay = (ms = 500) => new Promise(res => setTimeout(res, ms));
+        while (this.rows == null) {
+            await delay(500);
+        }
+        return this.rows;
     }
 
     normalizeRows(rows) {
@@ -819,6 +840,7 @@ class Sheet extends DefaultFile {
                 row.push("");
             }
         }
+        return rows;
     }
 
     async get(subsheet = "") {
