@@ -119,7 +119,7 @@ class Manager {
      * @param {String} URL A URL of a Google File
      */
     static getID(URL) {
-        return(new RegExp("\\/d\\/(.*?)(\\/|$)").exec(URL)[1]);
+        return (new RegExp("\\/d\\/(.*?)(\\/|$)").exec(URL)[1]);
     }
 
     /**
@@ -231,36 +231,42 @@ class Manager {
             var index = this.getInput(files);
             files = [files[index]];
         }
-        if (files) {
+        if (files && files.length > 0) {
             var myFile = files[0];
             if (initAll) {
                 var info = myFile;
-                var parentFolder = info.parents[0];
-                var sequenceOfParents = [];
-                while (!(this.allDriveInfos.map((driveInfo) => driveInfo.id).includes(parentFolder))) {
-                    info = await this.retrieveInfo(parentFolder);
-                    sequenceOfParents.push(info.id);
-                    if (!info.hasOwnProperty('parents')) {
-                        break;
+                if (info.parents) {
+                    var parentFolder = info.parents[0];
+                    var sequenceOfParents = [];
+                    while (!(this.allDriveInfos.map((driveInfo) => driveInfo.id).includes(parentFolder))) {
+                        info = await this.retrieveInfo(parentFolder);
+                        sequenceOfParents.push(info.id);
+                        if (!info.hasOwnProperty('parents')) {
+                            break;
+                        }
+                        parentFolder = info.parents[0];
                     }
-                    parentFolder = info.parents[0];
-                }
-                var folder = await this.getDrive(parentFolder);
-                var check = folder.info.id;
-                var target = sequenceOfParents[0];
-                while (check != target) {
-                    var nextID = sequenceOfParents.pop();
-                    folder = await folder.initFolder(nextID);
-                    check = folder.info.id;
-                }
-                if (myFile.mimeType.includes("folder")) {
-                    var endFolder = await folder.initFolder(myFile.id);
-                    return endFolder;
+                    var folder = await this.getDrive(parentFolder);
+                    var check = folder.info.id;
+                    var target = sequenceOfParents[0];
+                    while (check != target) {
+                        var nextID = sequenceOfParents.pop();
+                        folder = await folder.initFolder(nextID);
+                        check = folder.info.id;
+                    }
+                    if (myFile.mimeType.includes("folder")) {
+                        var endFolder = await folder.initFolder(myFile.id);
+                        return endFolder;
+                    } else {
+                        return await folder.searchAndInit(myFile.id);
+                    }
                 } else {
-                    return await folder.searchAndInit(myFile.id);
+                    console.log("That file was shared to you without access to the folder. Here's the File Instance.")
                 }
             }
             return genFile(myFile);
+        } else {
+            console.log("No Files found with that name.");
         }
     }
 
@@ -868,6 +874,4 @@ class Sheet extends DefaultFile {
 }
 
 //Slides API Under Development
-
-
 //More APIs on the way!
